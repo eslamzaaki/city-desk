@@ -1,20 +1,3 @@
-export type Feature = { name: string; station: string }
-
-export type Lesson = {
-  id: string
-  number: string
-  title: string
-  kicker: string
-  summary: string
-  look_for: string[]
-  default_prompt: string
-  accepts_prompt: boolean
-  kind: "reading" | "lesson" | "desk"
-  source: string
-  paragraphs: string[]
-  features: Feature[]
-}
-
 export type TraceEvent = { hook: string; detail: string }
 
 export type ToolCall = {
@@ -49,39 +32,59 @@ export type Interrupt = {
   }
 }
 
-export type Section = {
-  label: string
-  body: string
-  messages: Message[]
-  trace: TraceEvent[]
-  card?: Record<string, unknown>
-  todos?: { content: string; status: string }[]
-  interrupt?: Interrupt
-  tokens?: string[]
-  stream?: { node: string; summary: string }[]
-  routes?: { input: string; route: string; reply: string }[]
-  diagram?: string
-  hits?: { title: string; text: string; score: number }[]
-  table?: { columns: string[]; rows: string[][] }
-  schema?: unknown
+export type Profile = {
+  preferences: { language: string; answer_style: string }
+  facts: string[]
+  corrections: { topic: string; value: string; source_thread?: string }[]
 }
 
-export type RunResult = {
-  headline: string
-  sections: Section[]
+export type Refund = { id: string; order_id: string; reason: string; customer_id: string }
+
+export type FeedbackExample = {
+  question: string
+  judged_reply: string
+  feedback_message: string
+  problem: string
+  preferred_reply: string
+}
+
+export type FeedbackRecord = {
+  id: string
+  thread_id: string
+  customer_id: string
+  response_id: string
+  scope: "personal" | "shared"
+  rating: number
+  reason: string
+  corrected_answer: string
+  consent_for_training: boolean
+  example?: FeedbackExample
+}
+
+export type Candidate = {
+  id: string
+  customer_id: string
+  text: string
+  status: string
+  consent_for_training: boolean
+  source_thread: string
+  response_id: string
 }
 
 export type DeskState = {
   thread_id: string
+  response_id: string
   model: string
   messages: Message[]
   interrupt: Interrupt | null
   trace: TraceEvent[]
-  memories: string[]
-  spike: { id: string; headline: string; summary: string }[]
-  reporter: string
-  desk: string
-  threads: { id: string; title: string; reporter: string; desk: string }[]
+  profile: Profile
+  refunds: Refund[]
+  feedback: FeedbackRecord[]
+  candidates: Candidate[]
+  handbook: { id: string; title: string }[]
+  customer_id: string
+  threads: { id: string; title: string; customer_id: string }[]
 }
 
 export function messageText(message: Message): string {

@@ -1,4 +1,4 @@
-import type { DeskState, Lesson, RunResult } from "@/lib/types"
+import type { DeskState } from "@/lib/types"
 
 async function read<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -14,31 +14,10 @@ async function read<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function fetchLessons(): Promise<Lesson[]> {
-  const data = await read<{ lessons: Lesson[] }>(await fetch("/api/lessons"))
-  return data.lessons
-}
-
-export async function runLesson(id: string, prompt: string): Promise<RunResult> {
-  const data = await read<{ result: RunResult }>(
-    await fetch(`/api/lessons/${id}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    }),
-  )
-  return data.result
-}
-
-export async function fetchSource(id: string): Promise<{ path: string; code: string }> {
-  return read(await fetch(`/api/lessons/${id}/source`))
-}
-
 export type TurnBody = {
   thread_id: string
   message: string
-  reporter: string
-  desk: string
+  customer_id: string
 }
 
 export async function sendTurn(body: TurnBody): Promise<DeskState> {
@@ -53,8 +32,7 @@ export async function sendTurn(body: TurnBody): Promise<DeskState> {
 
 export async function resumeTurn(body: {
   thread_id: string
-  reporter: string
-  desk: string
+  customer_id: string
   decisions: Record<string, unknown>[]
 }): Promise<DeskState> {
   return read(
@@ -66,7 +44,42 @@ export async function resumeTurn(body: {
   )
 }
 
-export async function fetchState(threadId: string, reporter: string, desk: string): Promise<DeskState> {
-  const params = new URLSearchParams({ thread_id: threadId, reporter, desk })
+export async function fetchState(threadId: string, customerId: string): Promise<DeskState> {
+  const params = new URLSearchParams({ thread_id: threadId, customer_id: customerId })
   return read(await fetch(`/api/desk/state?${params.toString()}`))
+}
+
+export async function sendFeedback(body: {
+  thread_id: string
+  customer_id: string
+  response_id: string
+  scope: "personal" | "shared"
+  rating: number
+  reason: string
+  corrected_answer: string
+  consent_for_training: boolean
+}): Promise<DeskState> {
+  return read(
+    await fetch("/api/desk/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  )
+}
+
+export type Suggestion = {
+  where: "handbook" | "prompt" | "tool" | "ignore"
+  what: string
+  why: string
+  count: number
+  feedback_ids: string[]
+}
+
+export async function reviewFeedback(): Promise<{ reviewed: number; suggestions: Suggestion[] }> {
+  return read(await fetch("/api/desk/suggestions", { method: "POST" }))
+}
+
+export async function approveCandidate(id: string): Promise<{ candidates: DeskState["candidates"] }> {
+  return read(await fetch(`/api/desk/candidates/${id}/approve`, { method: "POST" }))
 }

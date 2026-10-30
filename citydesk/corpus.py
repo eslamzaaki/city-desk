@@ -1,8 +1,11 @@
-"""The Marsa archive: notes, a splitter, and an in-memory vector store.
+"""The Lumen handbook: notes, a splitter, and an in-memory vector store.
 
-The embedder is a bag of words over the archive, with stopwords removed and a
-light stem. It implements the LangChain ``Embeddings`` interface, so the
-vector-store call is the same one you would point at a hosted embedding model.
+Starter notes are the markdown files in ``data/handbook``. This module reads
+them, splits them, and builds an ``InMemoryVectorStore``. Nothing is written
+back to disk. The embedder is a bag of words over the handbook, with stopwords
+removed and a light stem. It implements the LangChain ``Embeddings`` interface,
+so the vector-store call is the same one you would point at a hosted embedding
+model.
 """
 
 from __future__ import annotations
@@ -10,97 +13,35 @@ from __future__ import annotations
 import math
 import re
 from functools import lru_cache
+from pathlib import Path
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-NOTES: list[dict[str, str]] = [
-    {
-        "id": "harbor-dredging",
-        "title": "Harbor dredging",
-        "body": (
-            "Harbor dredging starts Monday at pier 4. The port authority closed the inner "
-            "basin to ferries from dawn until 14:00. Barges will lift silt that has sat "
-            "since the spring storm. Fishermen move to pier 7 for the week. A notice on "
-            "the harbor gate says the crane stays up through Thursday. Night work is not "
-            "permitted because the lamps on pier 4 failed inspection."
-        ),
-    },
-    {
-        "id": "corniche-flood",
-        "title": "Corniche flood",
-        "body": (
-            "The corniche flooded between kilometre 2 and kilometre 4 after the storm drain "
-            "at the customs ramp clogged. Water reached the shop thresholds but not the "
-            "tram bed. Municipal crews opened two pumps at noon. The road reopens to cars "
-            "once the last pool in front of the date market drains. Pedestrians can use "
-            "the upper walk, which stayed dry."
-        ),
-    },
-    {
-        "id": "tram-extension",
-        "title": "Tram extension",
-        "body": (
-            "The tram extension adds a stop at the Customs House and another at the fish "
-            "market. Test cars run empty on Sunday. Fares do not change. The old terminus "
-            "at the warehouse gate closes the same morning. Drivers were told to call the "
-            "stop Customs, not Port, so the board matches the printed map."
-        ),
-    },
-    {
-        "id": "night-market",
-        "title": "Night market",
-        "body": (
-            "Night market lantern permits are due Friday at the licensing window. Stalls "
-            "that fry fish must keep a bucket of sand, not a bucket of water. The market "
-            "master will walk the row at 18:00. Unpermitted lanterns are cut down. Last "
-            "year two canvas roofs scorched because a stall used a candle instead of a lamp."
-        ),
-    },
-    {
-        "id": "museum",
-        "title": "Museum mosaic wing",
-        "body": (
-            "The museum reopens the mosaic wing on Saturday at 10:00. The new room holds "
-            "the harbor mosaic that was lifted from the old customs floor. Tickets stay "
-            "at the side door while the main stair is scaffolded. School groups enter "
-            "from the garden. Photography of the mosaic is allowed without flash."
-        ),
-    },
-    {
-        "id": "heat",
-        "title": "Heat advisory",
-        "body": (
-            "A heat advisory covers Marsa from 11:00 until 16:00. The noon bells are the "
-            "cue for outdoor crews to stop. The port will set water barrels at pier 7 and "
-            "at the tram stop. Schools dismiss early. The advisory does not close the "
-            "harbor, but crane work pauses while the advisory holds."
-        ),
-    },
-    {
-        "id": "ferry-strike",
-        "title": "Ferry strike",
-        "body": (
-            "Ferry crews vote Thursday morning on a one-day stoppage. The sailors want the "
-            "hazard pay that was promised after the spring storm. If the vote passes, the "
-            "first cancelled sailing is the 06:10 to the outer island. The port authority "
-            "has not published a replacement bus. Cargo barges are not part of the vote."
-        ),
-    },
-    {
-        "id": "warehouse-fire",
-        "title": "Spice warehouse fire",
-        "body": (
-            "A fire in the spice warehouse on Rope Walk started just after midnight and was "
-            "out by 02:20. No one was inside. Smoke stained the pepper sacks on the east "
-            "wall. The fire captain blamed a cracked lamp, not the wiring. The building "
-            "reopens for inventory on Wednesday. Neighbors reported the smell of clove "
-            "through the morning."
-        ),
-    },
-]
+HANDBOOK_DIR = Path(__file__).resolve().parent.parent / "data" / "handbook"
+
+
+def load_notes(directory: Path | None = None) -> list[dict[str, str]]:
+    """Read ``data/handbook/*.md``. A leading ``01-`` on the filename is sort order only."""
+
+    folder = directory or HANDBOOK_DIR
+    notes: list[dict[str, str]] = []
+    for path in sorted(folder.glob("*.md")):
+        text = path.read_text(encoding="utf-8").strip()
+        heading, _, body = text.partition("\n")
+        title = heading.removeprefix("# ").strip()
+        prefix, _, rest = path.stem.partition("-")
+        note_id = rest if prefix.isdigit() and rest else path.stem
+        notes.append({"id": note_id, "title": title, "body": body.strip()})
+    return notes
+
+
+NOTES: list[dict[str, str]] = load_notes()
+
+# Notes a person approved into the handbook. Personal memory never lands here on its own.
+EXTRA_NOTES: list[dict[str, str]] = []
 
 _STOPWORDS = {
     "the", "a", "an", "of", "and", "to", "in", "on", "for", "at", "is", "it", "its",
@@ -130,7 +71,7 @@ def tokenize(text: str) -> list[str]:
 
 
 class ArchiveEmbeddings(Embeddings):
-    """Bag-of-words over the archive vocabulary.
+    """Bag-of-words over the handbook vocabulary.
 
     One dimension per stemmed word in the notes, stopwords removed. Cosine
     similarity then prefers notes that share the question's words. This is the
@@ -158,11 +99,25 @@ class ArchiveEmbeddings(Embeddings):
         return [value / norm for value in vector]
 
 
+def all_notes() -> list[dict[str, str]]:
+    return [*NOTES, *EXTRA_NOTES]
+
+
+def add_handbook_note(note_id: str, title: str, body: str) -> None:
+    EXTRA_NOTES.append({"id": note_id, "title": title, "body": body})
+    vector_store.cache_clear()
+
+
+def clear_extra_notes() -> None:
+    EXTRA_NOTES.clear()
+    vector_store.cache_clear()
+
+
 def split_notes() -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=280, chunk_overlap=40)
     documents = [
         Document(page_content=note["body"], metadata={"id": note["id"], "title": note["title"]})
-        for note in NOTES
+        for note in all_notes()
     ]
     return splitter.split_documents(documents)
 
@@ -175,7 +130,10 @@ def vector_store() -> InMemoryVectorStore:
 
 
 def search_notes(query: str, k: int = 2) -> list[dict[str, str | float]]:
-    hits = vector_store().similarity_search_with_score(query, k=k)
+    try:
+        hits = vector_store().similarity_search_with_score(query, k=k)
+    except ValueError:
+        return []
     return [
         {
             "title": str(document.metadata.get("title", "note")),

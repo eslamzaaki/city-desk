@@ -1,7 +1,7 @@
 """A tiny trace the UI can show next to a run.
 
-Middleware and tools call ``emit``. The lesson or the desk opens a
-``trace_scope`` around ``invoke`` and reads the events back.
+Middleware and tools call ``emit``. The counter opens a ``trace_scope``
+around ``invoke`` and reads the events back.
 """
 
 from __future__ import annotations

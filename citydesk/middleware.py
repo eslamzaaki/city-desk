@@ -1,17 +1,11 @@
-"""Middleware that records the agent loop for the wire panel."""
+"""Middleware that records the agent loop for the counter."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from langchain.agents.middleware import (
-    AgentMiddleware,
-    ModelRequest,
-    ModelResponse,
-    wrap_tool_call,
-)
-from langchain.messages import ToolMessage
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 
 from citydesk.tracing import emit
 
@@ -64,20 +58,5 @@ class TraceMiddleware(AgentMiddleware):
         return handler(request)
 
     def after_agent(self, state, runtime) -> dict[str, Any] | None:
-        emit("after_agent", "shift step finished")
+        emit("after_agent", "turn finished")
         return None
-
-
-@wrap_tool_call
-def catch_tool_errors(request, handler):
-    """``wrap_tool_call`` body: a raised tool becomes a tool message, not a crash."""
-
-    try:
-        return handler(request)
-    except Exception as exc:
-        emit("wrap_tool_call:error", str(exc))
-        return ToolMessage(
-            content=f"Tool error caught: {exc}",
-            tool_call_id=request.tool_call["id"],
-            status="error",
-        )

@@ -23,14 +23,17 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import PrivateAttr
 
+from citydesk.feedback import feedback_ask, feedback_ready, parse_feedback
 from citydesk.serialize import message_text
 
 KNOWN_TOOLS = {
-    "search_archive",
+    "search_handbook",
+    "lookup_order",
     "save_preference",
     "recall_preferences",
-    "file_brief",
-    "who_is_on_duty",
+    "request_refund",
+    "who_is_shopping",
+    "save_feedback",
     "unstable_wire",
     "flaky_wire",
     "write_todos",
@@ -103,7 +106,7 @@ class DeskChatModel(BaseChatModel):
             excerpt = excerpt.split("</messages>", 1)[0]
             cleaned = re.sub(r"<[^>]+>", " ", excerpt)
             cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            summary = cleaned[:420] or "Earlier notes on the city desk."
+            summary = cleaned[:420] or "Earlier notes from the counter."
             return AIMessage(content=f"Summary: {summary}")
 
         names = [_tool_name(tool) for tool in tools]
@@ -132,8 +135,15 @@ class DeskChatModel(BaseChatModel):
                 return self._call(names[0], schemas[names[0]], human, evidence)
             return AIMessage(content=_plain_reply(human))
 
-        if _wants_file(human) and "file_brief" in schemas and "file_brief" not in called:
-            return self._call("file_brief", schemas["file_brief"], human, evidence)
+        if (
+            _wants_order(human)
+            and "search_handbook" in schemas
+            and "search_handbook" not in called
+            and "lookup_order" in called
+        ):
+            return self._call("search_handbook", schemas["search_handbook"], human, evidence)
+        if _wants_refund(human) and "request_refund" in schemas and "request_refund" not in called:
+            return self._call("request_refund", schemas["request_refund"], human, evidence)
         pending_schema = [name for name in schema_tools if name not in called]
         if pending_schema:
             return self._call(pending_schema[0], schemas[pending_schema[0]], human, evidence)
@@ -157,12 +167,46 @@ class DeskChatModel(BaseChatModel):
         )
 
 
-def resolve_model() -> tuple[BaseChatModel, str]:
-    """Use ``CITYDESK_MODEL`` when it is set, otherwise the local desk model."""
+_PROVIDER_DEFAULTS = {
+    "openai": "openai:gpt-6.1-sol",
+    "anthropic": "anthropic:claude-sonnet-4-5",
+}
 
-    spec = os.getenv("CITYDESK_MODEL", "").strip()
-    if not spec:
-        return DeskChatModel(), "local DeskChatModel (set CITYDESK_MODEL to use a provider)"
+
+def resolve_model() -> tuple[BaseChatModel, str]:
+    """Pick the counter model from ``CITYDESK_PROVIDER``.
+
+    ``local`` is the scripted desk model. ``openai`` and ``anthropic`` call that
+    provider. ``CITYDESK_MODEL`` can name the exact model; otherwise a default
+    for the provider is used. An empty provider with an empty model stays local.
+    """
+
+    provider = os.getenv("CITYDESK_PROVIDER", "").strip().lower()
+    model_name = os.getenv("CITYDESK_MODEL", "").strip()
+    if provider in {"", "local"} and not model_name:
+        return _local("local DeskChatModel")
+    if provider == "local":
+        return _local("local DeskChatModel")
+    if provider in _PROVIDER_DEFAULTS:
+        return _provider(_spec_for(provider, model_name))
+    if provider:
+        return _local(f"fell back to DeskChatModel (unknown CITYDESK_PROVIDER {provider})")
+    return _provider(model_name)
+
+
+def _spec_for(provider: str, model_name: str) -> str:
+    if not model_name or ":" in model_name and not model_name.startswith(f"{provider}:"):
+        return _PROVIDER_DEFAULTS[provider]
+    if model_name.startswith(f"{provider}:"):
+        return model_name
+    return f"{provider}:{model_name}"
+
+
+def _local(label: str) -> tuple[BaseChatModel, str]:
+    return DeskChatModel(), label
+
+
+def _provider(spec: str) -> tuple[BaseChatModel, str]:
     try:
         return init_chat_model(spec), spec
     except Exception as exc:  # a missing provider package should not take the desk down
@@ -220,13 +264,16 @@ def _is_greeting(text: str) -> bool:
 
 
 def _wants_memory(text: str) -> bool:
-    lowered = text.lower()
+    lowered = text.lower().strip()
+    if _wants_recall(text):
+        return False
     return (
         lowered.startswith("remember")
         or "remember that" in lowered
-        or "i prefer" in lowered
-        or "call me" in lowered
-        or "my beat is" in lowered
+        or lowered.startswith("i prefer")
+        or lowered.startswith("i wear")
+        or lowered.startswith("call me")
+        or lowered.startswith("correction")
     )
 
 
@@ -236,81 +283,107 @@ def _wants_recall(text: str) -> bool:
         phrase in lowered
         for phrase in (
             "what do you remember",
-            "what's my beat",
-            "what is my beat",
+            "what size",
+            "my size",
             "my preferences",
             "what did i tell you",
             "do you remember",
+            "about me",
         )
     )
 
 
 def _wants_identity(text: str) -> bool:
     lowered = text.lower()
-    return any(phrase in lowered for phrase in ("who is on duty", "who's on duty", "who am i", "on duty"))
+    return any(phrase in lowered for phrase in ("who am i", "who is shopping", "who's shopping"))
 
 
-def _wants_file(text: str) -> bool:
+def _wants_order(text: str) -> bool:
     lowered = text.lower()
-    return any(
-        phrase in lowered
-        for phrase in ("file a", "file the", "file this", "file it", "publish", "on the spike", "spike this")
-    )
+    return any(phrase in lowered for phrase in ("my order", "my shoes", "return", "refund", "exchange"))
+
+
+def _wants_refund(text: str) -> bool:
+    return "refund" in text.lower()
+
+
+def _wants_feedback(text: str) -> bool:
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in ("feedback", "that was wrong", "that reply", "that answer", "rate this", "rating")):
+        return True
+    return "the right answer is" in lowered and any(word in lowered for word in ("personal", "shared", "rating"))
 
 
 def _first_tool(names: list[str], human: str, schema_tools: list[str]) -> str | None:
-    if _wants_memory(human) and "save_preference" in names:
-        return "save_preference"
+    if _wants_feedback(human):
+        if feedback_ready(parse_feedback(human)) and "save_feedback" in names:
+            return "save_feedback"
+        return None
     if _wants_recall(human) and "recall_preferences" in names:
         return "recall_preferences"
-    if _wants_identity(human) and "who_is_on_duty" in names:
-        return "who_is_on_duty"
+    if _wants_memory(human) and "save_preference" in names:
+        return "save_preference"
+    if _wants_identity(human) and "who_is_shopping" in names:
+        return "who_is_shopping"
+    if _wants_order(human) and "lookup_order" in names:
+        return "lookup_order"
     if "write_todos" in names and "plan" in human.lower():
         return "write_todos"
     if (
-        "search_archive" in names
+        "search_handbook" in names
         and not _is_greeting(human)
         and not _wants_memory(human)
         and not _wants_recall(human)
         and not _wants_identity(human)
+        and not _wants_feedback(human)
     ):
-        return "search_archive"
+        return "search_handbook"
     if schema_tools and not _is_greeting(human):
         return schema_tools[0]
     return None
 
 
 def _plain_reply(human: str) -> str:
+    if _wants_feedback(human):
+        return feedback_ask(parse_feedback(human))
     if _is_greeting(human):
-        return (
-            "City desk is open. Ask about the harbor, the corniche, the tram, "
-            "the night market, or the heat."
-        )
+        return "The counter is open. Ask about a return, an order, shipping, or a product."
     if not human.strip():
-        return "Send a question and I will check the archive before I answer."
-    return "I don't have a note on that yet. Ask me to search the archive."
+        return "Send a question and I will check the handbook before I answer."
+    return "I don't have a note on that yet. Ask me to search the handbook."
 
 
 def _answer(evidence: str) -> str:
     if evidence:
-        return f"{evidence.strip()}\n\nFiled from the archive, not from guesswork."
-    return "I don't have a note on that yet. Ask me to search the archive."
+        return f"{evidence.strip()}\n\nAnswered from the handbook and this customer's own record."
+    return "I don't have a note on that yet. Ask me to search the handbook."
 
 
 def _headline(text: str) -> str:
     sentence = re.split(r"(?<=[.!?])\s", text.strip())[0]
     cleaned = re.sub(r"^\[[^\]]+\]\s*", "", sentence)
-    return (cleaned[:120] or "City desk brief").strip()
+    return (cleaned[:120] or "Lumen counter").strip()
 
 
 def _args_for(schema: dict, human: str, evidence: str) -> dict[str, Any]:
     function = schema.get("function", schema)
     params = (function.get("parameters") or {}).get("properties") or {}
     source = evidence or human
+    if "rating" in params and "scope" in params and "corrected_answer" in params:
+        parsed = parse_feedback(human)
+        return {
+            "rating": parsed["rating"] or 1,
+            "scope": parsed["scope"] or "personal",
+            "reason": parsed["reason"],
+            "corrected_answer": parsed["corrected_answer"],
+            "consent_for_training": bool(parsed["consent_for_training"]),
+        }
     args: dict[str, Any] = {}
     for key in params:
         if key in {"query", "topic", "note", "question"}:
             args[key] = human[:240]
+        elif key == "reason":
+            args[key] = (human or source)[:300]
         elif key == "headline":
             args[key] = _headline(source)
         elif key == "summary":
@@ -318,12 +391,10 @@ def _args_for(schema: dict, human: str, evidence: str) -> dict[str, Any]:
         elif key == "confidence":
             args[key] = 0.74 if evidence else 0.4
         elif key == "sources":
-            args[key] = ["city-archive"] if evidence else []
+            args[key] = ["shop-handbook"] if evidence else []
         elif key == "todos":
             args[key] = [
-                {"content": "Pull the matching archive note", "status": "completed"},
-                {"content": "Write the brief in the reporter's voice", "status": "in_progress"},
+                {"content": "Check the return policy", "status": "completed"},
+                {"content": "Answer in this customer's style", "status": "in_progress"},
             ]
-        elif key == "location":
-            args[key] = "Marsa"
     return args

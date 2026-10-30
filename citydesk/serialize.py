@@ -1,4 +1,4 @@
-"""Turn LangChain messages into JSON the newsroom UI can render."""
+"""Turn LangChain messages into JSON the counter UI can render."""
 
 from __future__ import annotations
 
@@ -53,14 +53,6 @@ def dump_interrupt(result: dict[str, Any]) -> dict[str, Any] | None:
         return None
     first = raw[0]
     return {"id": first.id, "value": first.value}
-
-
-def dump_structured(value: Any) -> Any:
-    if value is None:
-        return None
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    return _jsonable(value)
 
 
 def _jsonable(value: Any) -> Any:

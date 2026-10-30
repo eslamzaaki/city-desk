@@ -1,0 +1,35 @@
+{
+  "return_days": 30,
+  "customers": {
+    "sara": { "id": "sara", "name": "Sara El-Amin" },
+    "omar": { "id": "omar", "name": "Omar Haddad" }
+  },
+  "orders": {
+    "sara": {
+      "id": "L-1042",
+      "item": "Trail shoe",
+      "size": "42",
+      "price": 189,
+      "delivered_days_ago": 10
+    },
+    "omar": {
+      "id": "L-0988",
+      "item": "Trail shoe",
+      "size": "43",
+      "price": 189,
+      "delivered_days_ago": 40
+    }
+  },
+  "profiles": {
+    "sara": {
+      "preferences": { "language": "Arabic", "answer_style": "concise" },
+      "facts": ["Wears size 42"],
+      "corrections": []
+    },
+    "omar": {
+      "preferences": { "language": "English", "answer_style": "standard" },
+      "facts": [],
+      "corrections": []
+    }
+  }
+}

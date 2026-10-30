@@ -3,9 +3,9 @@ import { messageText, type Message } from "@/lib/types"
 
 const labels: Record<string, string> = {
   system: "System",
-  human: "Reporter",
-  ai: "Desk",
-  tool: "Archive",
+  human: "Customer",
+  ai: "Agent",
+  tool: "Tool",
 }
 
 export function Transcript({ messages }: { messages: Message[] }) {

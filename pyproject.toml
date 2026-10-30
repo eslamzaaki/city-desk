@@ -1,17 +1,18 @@
 [project]
 name = "citydesk"
 version = "0.1.0"
-description = "A newsroom you run to learn LangChain 1.x and LangGraph by doing the job."
+description = "The Lumen shop counter, an example that uses LangChain and the personalize library."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "personalize @ git+https://github.com/eslamzaaki/personalize.git@v0.1.0",
   "langchain>=1.4.7,<2",
   "langgraph>=1.2.18,<2",
   "langchain-text-splitters>=1.1",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
   "pydantic>=2",
-  "numpy>=2",
+  "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -26,3 +27,4 @@ include = ["citydesk*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
